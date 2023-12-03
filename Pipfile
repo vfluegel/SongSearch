@@ -9,6 +9,8 @@ tqdm = "*"
 transformers = "*"
 torch = "*"
 spacy = "*"
+pandas = "*"
+pyarrow = "*"
 
 [dev-packages]
 
