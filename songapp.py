@@ -1,29 +1,35 @@
 import tkinter as tk
 from tkinter import ttk
 import csv
+from tqdm import tqdm
 from whoosh.fields import Schema, TEXT
 import os.path
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import QueryParser
 
+
 def open_database():
     with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
-        writer = ix.writer()
-        i = 0
+
         for row in reader:
-            if i <= 100:
-                writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'])
-                i += 1
-            else:
-                break
-        writer.commit()
-        return
+            yield row
+
+
+def build_index():
+    writer = ix.writer(limitmb=2048)
+    with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in tqdm(reader):
+            writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'])
+
+    writer.commit()
+    print("Finished indexing.")
 
 
 def search(query_str, searcher):
     query = QueryParser("title", ix.schema).parse(query_str)
-    results = searcher.search(query)
+    results = searcher.search(query, limit=20)
     return results
 
 
@@ -45,14 +51,13 @@ def display_input():
 
 
 schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True))
-if not os.path.exists("index"):
-    os.mkdir("index")
-    create_in("index", schema)
-    ix = open_dir("index")
-    open_database()
+if not os.path.exists("index_full"):
+    os.mkdir("index_full")
+    create_in("index_full", schema)
+    ix = open_dir("index_full")
+    build_index()
 else:
-    ix = open_dir("index")
-
+    ix = open_dir("index_full")
 
 app = tk.Tk()
 app.title("Song App")
