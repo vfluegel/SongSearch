@@ -6,8 +6,11 @@ from whoosh.fields import Schema, TEXT
 import os.path
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import MultifieldParser
+import nltk
+from nltk.corpus import wordnet
 import shutil
 
+nltk.download('wordnet')
 user_feedback = {}
 
 def open_database():
@@ -33,12 +36,25 @@ def search(query_str, searcher, search_fields, schema):
 '''
  Here is the button command, where we could implement a feedback logic ( if possible)
 '''
-def remove_result(result,scores):
+def remove_result(user_input, result, synonymous, schema):
     # Define the logic to remove the result
     print(f"Remove the result: {result['title']} | Artist: {result['artist']}")
     user_feedback[result['title']] = result['artist']
     result_label.config(text="")
-    #display_input()
+    for list in synonymous:
+        for term in list:
+            user_input += f" OR {term}"
+    print(user_input)
+    second_query(user_input, schema)
+
+def get_synonyms(word):
+    synonyms = []
+
+    for syn in wordnet.synsets(word):
+        for lemma in syn.lemmas():
+            synonyms.append(lemma.name())
+
+    return set(synonyms)
 
 '''
  Second Selection, After the first one selected the songs that belongs to the proper artist/years 
@@ -52,18 +68,44 @@ def second_query(user_input, schema):
 
         if results:
             result_text = ""
-            # save the scores for the documents ( might need for a feedback retrieval??)
-            scores_dict = {(result['title'], result['artist']): result.score for result in results}
 
             for i, result in enumerate(results):
                 # print
                 result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
 
+                # gets most frequent terms
+                doc_id = result.docnum
+                term_vector = searcher.reader().vector(doc_id, "lyrics")
+                field_length = searcher.reader().doc_field_length(doc_id, "lyrics")
+                terms = term_vector.items_as("frequency")
+                sorted_terms = sorted(terms, key=lambda x: x[1], reverse=True)
+
+                # gets synonyms
+                synonymous = []
+                for term, freq in sorted_terms[:5]:
+                    synonym = get_synonyms(term)
+                    if synonym:
+                        synonymous.append(synonym)
+                    else:
+                        print(f"No synonyms found for {term}")
+
+                '''
+                print(f"result: {result['title']} | Artist: {result['artist']}")
+                print(f"Most frequent terms [{field_length}]:")
+                for term, freq in sorted_terms[:5]:
+                    print(f"{term}: {freq} times")
+
+                keywords = [keyword for keyword, score
+                            in results.key_terms("lyrics", docs=10, numterms=20)]
+                print(f"keywords[{keywords}]:")
+                '''
+
+
                 # button for the feedback, style sucks I am horrible at design but I didn't want to waste time on moving buttons
                 # plus they don't disappear with sequential queries so they stack. Just don't look to the right while running the app
                 remove_button = ttk.Button(frame,
                                            text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result: remove_result(r, scores_dict))
+                                           command=lambda r=result: remove_result(user_input, r, synonymous, schema))
                 remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
                 if i >= 9:
                     #Here I retrieved 100 items but only want to print out 10.
@@ -97,6 +139,7 @@ def first_query():
             for result in results:
                 tmp_writer.add_document(title=result['title'], tag=result['tag'], artist=result['artist'], year=result['year'], lyrics=result['lyrics'])
             # run the second query
+            tmp_writer.commit()
             second_query(user_input, tmp_ix.schema)
         else:
             result_text = "No results found (1)."
@@ -106,7 +149,7 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True))
+schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True, vector=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
@@ -120,7 +163,7 @@ Second schema, that is emptied each time.
 Here we save only the songs that survive to the first scan ( aka binary search ) 
 and so we scan this schema for the TF-IDF algo
 '''
-tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True))
+tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True, vector=True))
 
 '''
 PANEL and STYLE
