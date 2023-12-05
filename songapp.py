@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 import csv
+import pandas as pd
+import pyarrow.feather as feather
 from whoosh import scoring
 from whoosh.fields import Schema, TEXT
 import os.path
@@ -15,17 +17,17 @@ remove_buttons = []
 current_words = []
 
 def open_database():
-    with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        writer = ix.writer()
-        i = 0
-        for row in reader:
-            if i <= 100:
-                writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
-                i += 1
-            else:
-                break
-        writer.commit()
+     with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
+         reader = csv.DictReader(file)
+         writer = ix.writer()
+         i = 0
+         for row in reader:
+             if i <= 100:
+                 writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
+                 i += 1
+             else:
+                 break
+         writer.commit()
 
 
 def search(query_str, searcher, search_fields, schema):
