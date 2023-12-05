@@ -2,26 +2,27 @@ import tkinter as tk
 from tkinter import ttk
 import csv
 from whoosh import scoring
-from whoosh.fields import Schema, TEXT
+from whoosh.fields import Schema, TEXT, NUMERIC
 import os.path
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import MultifieldParser
 import shutil
+import pandas
 
 user_feedback = {}
 
+
 def open_database():
-    with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        writer = ix.writer()
-        i = 0
-        for row in reader:
-            if i <= 100:
-                writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
-                i += 1
-            else:
-                break
-        writer.commit()
+    print("Open data file...")
+    songs = pandas.read_feather("./song_lyrics.feather")
+    writer = ix.writer()
+
+    print("Generating index...")
+    for index, row in songs.iterrows():
+        writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
+
+    writer.commit()
+    print("Index finished!")
 
 
 def search(query_str, searcher, search_fields, schema):
@@ -106,7 +107,7 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True))
+schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
@@ -120,7 +121,7 @@ Second schema, that is emptied each time.
 Here we save only the songs that survive to the first scan ( aka binary search ) 
 and so we scan this schema for the TF-IDF algo
 '''
-tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True))
+tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
 
 '''
 PANEL and STYLE
