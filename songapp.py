@@ -17,6 +17,7 @@ remove_buttons = []
 current_words = []
 
 def open_database():
+    ''' 
      with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
          reader = csv.DictReader(file)
          writer = ix.writer()
@@ -28,6 +29,22 @@ def open_database():
              else:
                  break
          writer.commit()
+    '''
+
+    print("Open data file...")
+    songs = pd.read_feather("./song_lyrics.feather")
+    writer = ix.writer()
+
+    print("Generating index...")
+    for index, row in songs.iterrows():
+        if index <= 1000000:
+            print(f"index: {index}")
+            writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=str(row['year']), lyrics=row['lyrics'])
+        else:
+           break;
+
+    writer.commit()
+    print("Index finished!")
 
 
 def search(query_str, searcher, search_fields, schema):
