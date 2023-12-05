@@ -11,7 +11,8 @@ from nltk.corpus import wordnet
 import shutil
 
 nltk.download('wordnet')
-user_feedback = {}
+remove_buttons = []
+current_words = []
 
 def open_database():
     with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
@@ -37,13 +38,18 @@ def search(query_str, searcher, search_fields, schema):
  Here is the button command, where we could implement a feedback logic ( if possible)
 '''
 def remove_result(user_input, result, synonymous, schema):
+    global current_words
     # Define the logic to remove the result
     print(f"Remove the result: {result['title']} | Artist: {result['artist']}")
-    user_feedback[result['title']] = result['artist']
     result_label.config(text="")
-    for list in synonymous:
-        for term in list:
-            user_input += f" OR {term}"
+    for list_t in synonymous:
+        for term in list_t:
+            term = term.replace('_', ' ')
+            if ' ' in term:
+                term = f"\"{term}\""
+            if term not in current_words:
+                user_input += f" OR {term}"
+                current_words.append(term)
     print(user_input)
     second_query(user_input, schema)
 
@@ -61,6 +67,8 @@ def get_synonyms(word):
  We now use the TF-IDF to score the remaining songs only looking at their lyrics, using the temporary schema
 '''
 def second_query(user_input, schema):
+    global remove_buttons
+    global current_words
     search_fields = ["lyrics"]
 
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
@@ -68,6 +76,10 @@ def second_query(user_input, schema):
 
         if results:
             result_text = ""
+            for button in remove_buttons:
+                button.destroy()
+
+            remove_buttons = []
 
             for i, result in enumerate(results):
                 # print
@@ -86,32 +98,15 @@ def second_query(user_input, schema):
                     synonym = get_synonyms(term)
                     if synonym:
                         synonymous.append(synonym)
-                    else:
-                        print(f"No synonyms found for {term}")
 
-                '''
-                print(f"result: {result['title']} | Artist: {result['artist']}")
-                print(f"Most frequent terms [{field_length}]:")
-                for term, freq in sorted_terms[:5]:
-                    print(f"{term}: {freq} times")
-
-                keywords = [keyword for keyword, score
-                            in results.key_terms("lyrics", docs=10, numterms=20)]
-                print(f"keywords[{keywords}]:")
-                '''
-
-
-                # button for the feedback, style sucks I am horrible at design but I didn't want to waste time on moving buttons
-                # plus they don't disappear with sequential queries so they stack. Just don't look to the right while running the app
                 remove_button = ttk.Button(frame,
                                            text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result: remove_result(user_input, r, synonymous, schema))
+                                           command=lambda r=result, s=synonymous: remove_result(user_input, r, s, schema))
                 remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
+
+                remove_buttons.append(remove_button)
+
                 if i >= 9:
-                    #Here I retrieved 100 items but only want to print out 10.
-                    #I retrieved 100 to save the scores and use them to fix the list after a feedback, so it's faster
-                    #IMPORTANT!!! feedback is just an idea rn and it's not implemented, so everything related to that is
-                    #just a scratch
                     break
         else:
             result_text = "No results found (2)."
@@ -123,7 +118,12 @@ def second_query(user_input, schema):
  Right now it uses BM25F (default) 
 '''
 def first_query():
+    global current_words
+    current_words = []
     user_input = entry.get()
+    words = user_input.split()
+    for word in words:
+        current_words.append(word)
     search_fields = ["title", "tag", "artist", "year", "lyrics"]
 
     with ix.searcher() as searcher:
