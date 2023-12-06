@@ -2,34 +2,34 @@ import tkinter as tk
 from tkinter import ttk
 import csv
 from tqdm import tqdm
-from whoosh.fields import Schema, TEXT
-from whoosh import scoring
+from whoosh.fields import Schema, TEXT, KEYWORD
+from whoosh import scoring, qparser
 from whoosh.fields import Schema, TEXT, NUMERIC
 import os.path
 from whoosh.index import create_in, open_dir
-from whoosh.qparser import MultifieldParser
+from whoosh.qparser import MultifieldParser, QueryParser
 import shutil
 import pandas
 
 user_feedback = {}
 
 
-
 def open_database():
     print("Open data file...")
-    songs = pandas.read_feather("./song_lyrics.feather")
-    writer = ix.writer()
+    songs = pandas.read_feather("./songs_filtered.feather")
+    writer = ix.writer(limitmb=2048)
 
     print("Generating index...")
-    for index, row in songs.iterrows():
-        writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
+    for row in tqdm(songs.itertuples(), total=songs.shape[0]):
+        writer.add_document(title=row.title, tag=row.tag, artist=row.artist, year=row.year, lyrics=row.lyrics)
 
     writer.commit()
     print("Index finished!")
 
 
 def search(query_str, searcher, search_fields, schema):
-    mparser = MultifieldParser(search_fields, schema)
+    or_group = qparser.OrGroup.factory(0.9)
+    mparser = MultifieldParser(search_fields, schema, group=or_group)
     query = mparser.parse(query_str)
     results = searcher.search(query, limit=100)
     return results
@@ -48,35 +48,44 @@ def remove_result(result,scores):
  Second Selection, After the first one selected the songs that belongs to the proper artist/years 
  We now use the TF-IDF to score the remaining songs only looking at their lyrics, using the temporary schema
 '''
-def second_query(user_input, schema):
+def second_query(user_input, docs, custom_schema=None):
     search_fields = ["lyrics"]
 
+    result_label.config(text="Generating your playlist....")
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
-        results = search(user_input, searcher, search_fields, schema)
+        or_group = qparser.OrGroup
+        mparser = QueryParser("lyrics", ix.schema, group=or_group)
+        query = mparser.parse(user_input)
+        results = searcher.search(query, limit=30, filter=docs)
+        #results = search(user_input, searcher, search_fields, schema)
 
         if results:
-            result_text = ""
-            # save the scores for the documents ( might need for a feedback retrieval??)
-            scores_dict = {(result['title'], result['artist']): result.score for result in results}
-
-            for i, result in enumerate(results):
-                # print
-                result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
-
-                # button for the feedback, style sucks I am horrible at design but I didn't want to waste time on moving buttons
-                # plus they don't disappear with sequential queries so they stack. Just don't look to the right while running the app
-                remove_button = ttk.Button(frame,
-                                           text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result: remove_result(r, scores_dict))
-                remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
-                if i >= 9:
-                    #Here I retrieved 100 items but only want to print out 10.
-                    #I retrieved 100 to save the scores and use them to fix the list after a feedback, so it's faster
-                    #IMPORTANT!!! feedback is just an idea rn and it's not implemented, so everything related to that is
-                    #just a scratch
-                    break
+            display_results(results)
         else:
             result_text = "No results found (2)."
+
+
+def display_results(results):
+    result_text = ""
+    # save the scores for the documents ( might need for a feedback retrieval??)
+    scores_dict = {(result['title'], result['artist']): result.score for result in results}
+
+    for i, result in enumerate(results):
+        # print
+        result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
+
+        # button for the feedback, style sucks I am horrible at design but I didn't want to waste time on moving buttons
+        # plus they don't disappear with sequential queries so they stack. Just don't look to the right while running the app
+        remove_button = ttk.Button(frame,
+                                   text=f"{result['title']} | Artist: {result['artist']}",
+                                   command=lambda r=result: remove_result(r, scores_dict))
+        remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
+        if i >= 9:
+            # Here I retrieved 100 items but only want to print out 10.
+            # I retrieved 100 to save the scores and use them to fix the list after a feedback, so it's faster
+            # IMPORTANT!!! feedback is just an idea rn and it's not implemented, so everything related to that is
+            # just a scratch
+            break
 
     result_label.config(text=result_text)
 
@@ -85,12 +94,15 @@ def second_query(user_input, schema):
  Right now it uses BM25F (default) 
 '''
 def first_query():
+
+    result_label.config(text="Getting the songs...")
     user_input = entry.get()
-    search_fields = ["title", "tag", "artist", "year", "lyrics"]
+    search_fields = ["title", "tag", "artist", "year"]
 
     with ix.searcher() as searcher:
         results = search(user_input, searcher, search_fields, ix.schema)
-        if results:
+        use_second = False
+        if use_second:
             # make a new temporary schema for the new query
             if os.path.exists("tmp_index"):
                 shutil.rmtree("tmp_index")
@@ -102,6 +114,8 @@ def first_query():
                 tmp_writer.add_document(title=result['title'], tag=result['tag'], artist=result['artist'], year=result['year'], lyrics=result['lyrics'])
             # run the second query
             second_query(user_input, tmp_ix.schema)
+        elif results:
+            second_query(user_input, {res.docnum for res in results})
         else:
             result_text = "No results found (1)."
             result_label.config(text=result_text)
@@ -110,7 +124,8 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
+schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
+                lyrics=TEXT(vector=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
@@ -124,7 +139,8 @@ Second schema, that is emptied each time.
 Here we save only the songs that survive to the first scan ( aka binary search ) 
 and so we scan this schema for the TF-IDF algo
 '''
-tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
+tmp_schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
+                    lyrics=TEXT(vector=True))
 
 '''
 PANEL and STYLE
