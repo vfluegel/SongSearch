@@ -1,17 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
-import csv
-import pandas as pd
-import pyarrow.feather as feather
-from whoosh import scoring
-from whoosh.fields import Schema, TEXT
+import pandas
+from tqdm import tqdm
+from whoosh import scoring, qparser
+from whoosh.fields import Schema, TEXT, KEYWORD, NUMERIC
 import os.path
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import MultifieldParser
 import nltk
 from nltk.corpus import wordnet
-import shutil
-from array import array
 
 nltk.download('wordnet')
 remove_buttons = []
@@ -19,23 +16,25 @@ current_words = []
 
 def open_database():
     print("Open data file...")
-    songs = pd.read_feather("./song_lyrics.feather")
-    writer = ix.writer()
+    #songs = pandas.read_feather("./songs_filtered.feather")
+    songs = pandas.read_feather("./song_lyrics.feather")
+    writer = ix.writer(limitmb=2048)
 
     print("Generating index...")
-    for index, row in songs.iterrows():
-        if index <= 100:
-            print(f"index: {index}")
-            writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=str(row['year']), lyrics=row['lyrics'])
-        else:
-           break;
+    i = 0
+    for row in tqdm(songs.itertuples(), total=songs.shape[0]):
+        i += 1
+        writer.add_document(title=row.title, tag=row.tag, artist=row.artist, year=row.year, lyrics=row.lyrics)
+        if i >= 100:
+            break
 
     writer.commit()
     print("Index finished!")
 
 
 def search(query_str, searcher, search_fields, schema, docnums = None):
-    mparser = MultifieldParser(search_fields, schema)
+    or_group = qparser.OrGroup.factory(0.9)
+    mparser = MultifieldParser(search_fields, schema, group=or_group)
     query = mparser.parse(query_str)
     if docnums is not None:
         results = searcher.search(query, limit=100, filter=docnums)
@@ -92,7 +91,7 @@ def second_query(user_input, docnums):
 
             for i, result in enumerate(results):
                 # print
-                result_text += f"{result['title']} by {result['artist']} | Score: {result.score:.4f}\n"
+                result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
 
                 # gets most frequent terms
                 doc_id = result.docnum
@@ -108,7 +107,7 @@ def second_query(user_input, docnums):
                         synonymous.append(synonym)
 
                 remove_button = ttk.Button(frame,
-                                           text=f"{result['title']} by {result['artist']}",
+                                           text=f"{result['title']} | Artist: {result['artist']}",
                                            command=lambda r=result, s=synonymous : remove_result(user_input, r, s, docnums))
                 remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
 
@@ -150,7 +149,8 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT, artist=TEXT(stored=True), year=TEXT, lyrics=TEXT(vector=True))
+schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
+                lyrics=TEXT(vector=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
