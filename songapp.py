@@ -11,33 +11,20 @@ from whoosh.qparser import MultifieldParser
 import nltk
 from nltk.corpus import wordnet
 import shutil
+from array import array
 
 nltk.download('wordnet')
 remove_buttons = []
 current_words = []
 
 def open_database():
-    ''' 
-     with open("./song_lyrics.csv", 'r', encoding='utf-8') as file:
-         reader = csv.DictReader(file)
-         writer = ix.writer()
-         i = 0
-         for row in reader:
-             if i <= 100:
-                 writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
-                 i += 1
-             else:
-                 break
-         writer.commit()
-    '''
-
     print("Open data file...")
     songs = pd.read_feather("./song_lyrics.feather")
     writer = ix.writer()
 
     print("Generating index...")
     for index, row in songs.iterrows():
-        if index <= 1000000:
+        if index <= 100:
             print(f"index: {index}")
             writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=str(row['year']), lyrics=row['lyrics'])
         else:
@@ -47,16 +34,19 @@ def open_database():
     print("Index finished!")
 
 
-def search(query_str, searcher, search_fields, schema):
+def search(query_str, searcher, search_fields, schema, docnums = None):
     mparser = MultifieldParser(search_fields, schema)
     query = mparser.parse(query_str)
-    results = searcher.search(query, limit=100)
+    if docnums is not None:
+        results = searcher.search(query, limit=100, filter=docnums)
+    else:
+        results = searcher.search(query, limit=100)
     return results
 
 '''
  Here is the button command, where we could implement a feedback logic ( if possible)
 '''
-def remove_result(user_input, result, synonymous, schema):
+def remove_result(user_input, result, synonymous, docnums):
     global current_words
     # Define the logic to remove the result
     print(f"Remove the result: {result['title']} | Artist: {result['artist']}")
@@ -70,7 +60,7 @@ def remove_result(user_input, result, synonymous, schema):
                 user_input += f" OR {term}"
                 current_words.append(term)
     print(user_input)
-    second_query(user_input, schema)
+    second_query(user_input, docnums)
 
 def get_synonyms(word):
     synonyms = []
@@ -85,13 +75,13 @@ def get_synonyms(word):
  Second Selection, After the first one selected the songs that belongs to the proper artist/years 
  We now use the TF-IDF to score the remaining songs only looking at their lyrics, using the temporary schema
 '''
-def second_query(user_input, schema):
+def second_query(user_input, docnums):
     global remove_buttons
     global current_words
     search_fields = ["lyrics"]
 
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
-        results = search(user_input, searcher, search_fields, schema)
+        results = search(user_input, searcher, search_fields, ix.schema, docnums)
 
         if results:
             result_text = ""
@@ -102,12 +92,11 @@ def second_query(user_input, schema):
 
             for i, result in enumerate(results):
                 # print
-                result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
+                result_text += f"{result['title']} by {result['artist']} | Score: {result.score:.4f}\n"
 
                 # gets most frequent terms
                 doc_id = result.docnum
                 term_vector = searcher.reader().vector(doc_id, "lyrics")
-                field_length = searcher.reader().doc_field_length(doc_id, "lyrics")
                 terms = term_vector.items_as("frequency")
                 sorted_terms = sorted(terms, key=lambda x: x[1], reverse=True)
 
@@ -119,8 +108,8 @@ def second_query(user_input, schema):
                         synonymous.append(synonym)
 
                 remove_button = ttk.Button(frame,
-                                           text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result, s=synonymous: remove_result(user_input, r, s, schema))
+                                           text=f"{result['title']} by {result['artist']}",
+                                           command=lambda r=result, s=synonymous : remove_result(user_input, r, s, docnums))
                 remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
 
                 remove_buttons.append(remove_button)
@@ -148,18 +137,11 @@ def first_query():
     with ix.searcher() as searcher:
         results = search(user_input, searcher, search_fields, ix.schema)
         if results:
-            # make a new temporary schema for the new query
-            if os.path.exists("tmp_index"):
-                shutil.rmtree("tmp_index")
-            os.mkdir("tmp_index")
-            create_in("tmp_index", tmp_schema)
-            tmp_ix = open_dir("tmp_index")
-            tmp_writer = tmp_ix.writer()
+            print("first query done...")
             for result in results:
-                tmp_writer.add_document(title=result['title'], tag=result['tag'], artist=result['artist'], year=result['year'], lyrics=result['lyrics'])
+                print(result.docnum)
             # run the second query
-            tmp_writer.commit()
-            second_query(user_input, tmp_ix.schema)
+            second_query(user_input, results)
         else:
             result_text = "No results found (1)."
             result_label.config(text=result_text)
@@ -168,7 +150,7 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True, vector=True))
+schema = Schema(title=TEXT(stored=True), tag=TEXT, artist=TEXT(stored=True), year=TEXT, lyrics=TEXT(vector=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
@@ -176,13 +158,6 @@ if not os.path.exists("index"):
     open_database()
 else:
     ix = open_dir("index")
-
-'''
-Second schema, that is emptied each time. 
-Here we save only the songs that survive to the first scan ( aka binary search ) 
-and so we scan this schema for the TF-IDF algo
-'''
-tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=TEXT(stored=True), lyrics=TEXT(stored=True, vector=True))
 
 '''
 PANEL and STYLE
