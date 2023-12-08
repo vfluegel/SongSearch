@@ -16,17 +16,25 @@ current_words = []
 
 def open_database():
     print("Open data file...")
-    #songs = pandas.read_feather("./songs_filtered.feather")
-    songs = pandas.read_feather("./song_lyrics.feather")
+    songs = pandas.read_feather("./songs_filtered.feather")
     writer = ix.writer(limitmb=2048)
 
     print("Generating index...")
     i = 0
+    j = 1
     for row in tqdm(songs.itertuples(), total=songs.shape[0]):
         i += 1
-        writer.add_document(title=row.title, tag=row.tag, artist=row.artist, year=row.year, lyrics=row.lyrics)
-        if i >= 100:
-            break
+        try:
+            writer.add_document(title=row.title, tag=row.tag, artist=row.artist, year=row.year, lyrics=row.lyrics)
+        except Exception as e:
+            print(f"Skipping {row.title} by {row.artist}")
+            print(f"An exception occurred: {e}")
+        if i >= 10000:
+            writer.commit()
+            writer = ix.writer(limitmb=2048)
+            print(f"Index finished! {j}")
+            j += 1
+            i = 0
 
     writer.commit()
     print("Index finished!")
@@ -78,7 +86,6 @@ def second_query(user_input, docnums):
     global remove_buttons
     global current_words
     search_fields = ["lyrics"]
-
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
         results = search(user_input, searcher, search_fields, ix.schema, docnums)
 
@@ -137,8 +144,6 @@ def first_query():
         results = search(user_input, searcher, search_fields, ix.schema)
         if results:
             print("first query done...")
-            for result in results:
-                print(result.docnum)
             # run the second query
             second_query(user_input, results)
         else:
