@@ -98,9 +98,9 @@ def second_query(user_input, docnums):
 
             remove_buttons = []
 
-            for i, result in enumerate(results):
-                # print
-                result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
+    for i, result in enumerate(results):
+        # print
+        result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
 
                 # gets most frequent terms
                 doc_id = result.docnum
@@ -136,6 +136,8 @@ def second_query(user_input, docnums):
 def first_query():
     global current_words
     current_words = []
+
+    result_label.config(text="Getting the songs...")
     user_input = entry.get()
     words = user_input.split()
     for word in words:
@@ -171,7 +173,8 @@ Second schema, that is emptied each time.
 Here we save only the songs that survive to the first scan ( aka binary search ) 
 and so we scan this schema for the TF-IDF algo
 '''
-tmp_schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
+tmp_schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
+                    lyrics=TEXT(vector=True))
 
 '''
 PANEL and STYLE
