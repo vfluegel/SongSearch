@@ -76,6 +76,10 @@ def parse_query(query):
 
         print(entity)
 
+    tags = parse_tags(query)
+    if tags:
+        entities["tags"] = tags
+
     return entities
 
 
