@@ -1,76 +1,128 @@
 import tkinter as tk
 from tkinter import ttk
+import pandas
+from tqdm import tqdm
+from whoosh import scoring, qparser
+from whoosh.fields import Schema, TEXT, KEYWORD, NUMERIC
 import csv
-from whoosh import scoring
-from whoosh.fields import Schema, TEXT, NUMERIC
 import os.path
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import MultifieldParser
-import shutil
-import pandas
+import nltk
+from nltk.corpus import wordnet
 
-user_feedback = {}
+nltk.download('wordnet')
+remove_buttons = []
+current_words = []
 
 
 def open_database():
     print("Open data file...")
-    songs = pandas.read_feather("./song_lyrics.feather")
-    writer = ix.writer()
+    songs = pandas.read_feather("./songs_filtered.feather")
+    writer = ix.writer(limitmb=2048)
 
     print("Generating index...")
-    for index, row in songs.iterrows():
-        writer.add_document(title=row['title'], tag=row['tag'], artist=row['artist'], year=row['year'], lyrics=row['lyrics'])
+    i = 0
+    j = 1
+    for row in tqdm(songs.itertuples(), total=songs.shape[0]):
+        i += 1
+        try:
+            writer.add_document(title=row.title, tag=row.tag, artist=row.artist, year=row.year, lyrics=row.lyrics)
+        except Exception as e:
+            print(f"Skipping {row.title} by {row.artist}")
+            print(f"An exception occurred: {e}")
+        if i >= 10000:
+            writer.commit()
+            writer = ix.writer(limitmb=2048)
+            print(f"Index finished! {j}")
+            j += 1
+            i = 0
 
     writer.commit()
     print("Index finished!")
 
 
-def search(query_str, searcher, search_fields, schema):
-    mparser = MultifieldParser(search_fields, schema)
+def search(query_str, searcher, search_fields, schema, docnums = None):
+    or_group = qparser.OrGroup.factory(0.9)
+    mparser = MultifieldParser(search_fields, schema, group=or_group)
     query = mparser.parse(query_str)
-    results = searcher.search(query, limit=100)
+    if docnums is not None:
+        results = searcher.search(query, limit=100, filter=docnums)
+    else:
+        results = searcher.search(query, limit=100)
     return results
 
 '''
  Here is the button command, where we could implement a feedback logic ( if possible)
 '''
-def remove_result(result,scores):
+def remove_result(user_input, result, synonymous, docnums):
+    global current_words
     # Define the logic to remove the result
     print(f"Remove the result: {result['title']} | Artist: {result['artist']}")
-    user_feedback[result['title']] = result['artist']
     result_label.config(text="")
-    #display_input()
+    for list_t in synonymous:
+        for term in list_t:
+            term = term.replace('_', ' ')
+            if ' ' in term:
+                term = f"\"{term}\""
+            if term not in current_words:
+                user_input += f" OR {term}"
+                current_words.append(term)
+    print(user_input)
+    second_query(user_input, docnums)
+
+def get_synonyms(word):
+    synonyms = []
+
+    for syn in wordnet.synsets(word):
+        for lemma in syn.lemmas():
+            synonyms.append(lemma.name())
+
+    return set(synonyms)
 
 '''
  Second Selection, After the first one selected the songs that belongs to the proper artist/years 
  We now use the TF-IDF to score the remaining songs only looking at their lyrics, using the temporary schema
 '''
-def second_query(user_input, schema):
+def second_query(user_input, docnums):
+    global remove_buttons
+    global current_words
     search_fields = ["lyrics"]
-
     with ix.searcher(weighting=scoring.TF_IDF()) as searcher:
-        results = search(user_input, searcher, search_fields, schema)
+        results = search(user_input, searcher, search_fields, ix.schema, docnums)
 
         if results:
             result_text = ""
-            # save the scores for the documents ( might need for a feedback retrieval??)
-            scores_dict = {(result['title'], result['artist']): result.score for result in results}
+            for button in remove_buttons:
+                button.destroy()
+
+            remove_buttons = []
 
             for i, result in enumerate(results):
                 # print
                 result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
 
-                # button for the feedback, style sucks I am horrible at design but I didn't want to waste time on moving buttons
-                # plus they don't disappear with sequential queries so they stack. Just don't look to the right while running the app
+                # gets most frequent terms
+                doc_id = result.docnum
+                term_vector = searcher.reader().vector(doc_id, "lyrics")
+                terms = term_vector.items_as("frequency")
+                sorted_terms = sorted(terms, key=lambda x: x[1], reverse=True)
+
+                # gets synonyms
+                synonymous = []
+                for term, freq in sorted_terms[:5]:
+                    synonym = get_synonyms(term)
+                    if synonym:
+                        synonymous.append(synonym)
+
                 remove_button = ttk.Button(frame,
                                            text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result: remove_result(r, scores_dict))
+                                           command=lambda r=result, s=synonymous : remove_result(user_input, r, s, docnums))
                 remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
+
+                remove_buttons.append(remove_button)
+
                 if i >= 9:
-                    #Here I retrieved 100 items but only want to print out 10.
-                    #I retrieved 100 to save the scores and use them to fix the list after a feedback, so it's faster
-                    #IMPORTANT!!! feedback is just an idea rn and it's not implemented, so everything related to that is
-                    #just a scratch
                     break
         else:
             result_text = "No results found (2)."
@@ -82,23 +134,20 @@ def second_query(user_input, schema):
  Right now it uses BM25F (default) 
 '''
 def first_query():
+    global current_words
+    current_words = []
     user_input = entry.get()
+    words = user_input.split()
+    for word in words:
+        current_words.append(word)
     search_fields = ["title", "tag", "artist", "year", "lyrics"]
 
     with ix.searcher() as searcher:
         results = search(user_input, searcher, search_fields, ix.schema)
         if results:
-            # make a new temporary schema for the new query
-            if os.path.exists("tmp_index"):
-                shutil.rmtree("tmp_index")
-            os.mkdir("tmp_index")
-            create_in("tmp_index", tmp_schema)
-            tmp_ix = open_dir("tmp_index")
-            tmp_writer = tmp_ix.writer()
-            for result in results:
-                tmp_writer.add_document(title=result['title'], tag=result['tag'], artist=result['artist'], year=result['year'], lyrics=result['lyrics'])
+            print("first query done...")
             # run the second query
-            second_query(user_input, tmp_ix.schema)
+            second_query(user_input, results)
         else:
             result_text = "No results found (1)."
             result_label.config(text=result_text)
@@ -107,7 +156,8 @@ def first_query():
 '''
 First schema, with all the songs
 '''
-schema = Schema(title=TEXT(stored=True), tag=TEXT(stored=True), artist=TEXT(stored=True), year=NUMERIC(stored=True), lyrics=TEXT(stored=True))
+schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
+                lyrics=TEXT(vector=True))
 if not os.path.exists("index"):
     os.mkdir("index")
     create_in("index", schema)
