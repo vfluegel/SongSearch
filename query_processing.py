@@ -55,9 +55,11 @@ def parse_spacy(query):
         print(f"Entity (spacy): {entity}, Label: {label}")
 
 
+# load tagger
+tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
+
+
 def parse_query(query):
-    # load tagger
-    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
     # make example sentence
     sentence = Sentence(query)
     # predict NER tags
@@ -80,6 +82,7 @@ def parse_query(query):
     if tags:
         entities["tags"] = tags
 
+    print(entities)
     return entities
 
 

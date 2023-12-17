@@ -10,6 +10,8 @@ from whoosh.index import create_in, open_dir
 from whoosh.qparser import MultifieldParser
 import nltk
 from nltk.corpus import wordnet
+import lucene_searcher
+from query_processing import parse_query
 
 nltk.download('wordnet')
 remove_buttons = []
@@ -102,28 +104,28 @@ def second_query(user_input, docnums):
         # print
         result_text += f"{result['title']} | Artist: {result['artist']} | Score: {result.score:.4f}\n"
 
-                # gets most frequent terms
-                doc_id = result.docnum
-                term_vector = searcher.reader().vector(doc_id, "lyrics")
-                terms = term_vector.items_as("frequency")
-                sorted_terms = sorted(terms, key=lambda x: x[1], reverse=True)
+        # gets most frequent terms
+        doc_id = result.docnum
+        term_vector = searcher.reader().vector(doc_id, "lyrics")
+        terms = term_vector.items_as("frequency")
+        sorted_terms = sorted(terms, key=lambda x: x[1], reverse=True)
 
-                # gets synonyms
-                synonymous = []
-                for term, freq in sorted_terms[:5]:
-                    synonym = get_synonyms(term)
-                    if synonym:
-                        synonymous.append(synonym)
+        # gets synonyms
+        synonymous = []
+        for term, freq in sorted_terms[:5]:
+            synonym = get_synonyms(term)
+            if synonym:
+                synonymous.append(synonym)
 
-                remove_button = ttk.Button(frame,
-                                           text=f"{result['title']} | Artist: {result['artist']}",
-                                           command=lambda r=result, s=synonymous : remove_result(user_input, r, s, docnums))
-                remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
+        remove_button = ttk.Button(frame,
+                                   text=f"{result['title']} | Artist: {result['artist']}",
+                                   command=lambda r=result, s=synonymous : remove_result(user_input, r, s, docnums))
+        remove_button.grid(row=i, column=1, sticky=tk.W, padx=(5, 0))
 
-                remove_buttons.append(remove_button)
+        remove_buttons.append(remove_button)
 
-                if i >= 9:
-                    break
+        if i >= 9:
+            break
         else:
             result_text = "No results found (2)."
 
@@ -142,31 +144,29 @@ def first_query():
     words = user_input.split()
     for word in words:
         current_words.append(word)
-    search_fields = ["title", "tag", "artist", "year", "lyrics"]
 
-    with ix.searcher() as searcher:
-        results = search(user_input, searcher, search_fields, ix.schema)
-        if results:
-            print("first query done...")
-            # run the second query
-            second_query(user_input, results)
-        else:
-            result_text = "No results found (1)."
-            result_label.config(text=result_text)
-    return
+    query_dict = parse_query(user_input)
+    results = lucene_searcher.search_index(index_searcher, query_dict)
+    if results:
+        print("Query done...")
+        result_text = ""
+        for result in results:
+            result_text += f"{result['title']} | Artist: {result['artist']}\n"
+        result_label.config(text=result_text)
+    else:
+        result_text = "No results found (1)."
+        result_label.config(text=result_text)
+
 
 '''
 First schema, with all the songs
 '''
 schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), year=NUMERIC(stored=True),
                 lyrics=TEXT(vector=True))
-if not os.path.exists("index"):
-    os.mkdir("index")
-    create_in("index", schema)
-    ix = open_dir("index")
-    open_database()
-else:
-    ix = open_dir("index")
+index_dir = "./lucene_index"
+if not os.path.exists(index_dir):
+    lucene_searcher.create_index("./lucene_index")
+index_searcher = lucene_searcher.get_searcher(index_dir)
 
 '''
 Second schema, that is emptied each time. 

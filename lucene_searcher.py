@@ -8,8 +8,12 @@ from org.apache.lucene.analysis.standard import StandardAnalyzer
 from org.apache.lucene.document import Document, Field, StringField, TextField, IntPoint
 from org.apache.lucene.index import FieldInfo, IndexWriter, DirectoryReader, IndexWriterConfig, IndexOptions, Term
 from org.apache.lucene.store import FSDirectory, NIOFSDirectory
-from org.apache.lucene.search import IndexSearcher, TermQuery, BoostQuery, BooleanQuery, BooleanClause, ScoreDoc, TopDocs
+from org.apache.lucene.search import IndexSearcher, TermQuery, BoostQuery, BooleanQuery, BooleanClause, ScoreDoc, \
+    TopDocs
 from org.apache.lucene.queryparser.classic import QueryParser
+
+lucene.initVM()
+print(f"Lucene: {lucene.VERSION}")
 
 
 def create_index(index_dir):
@@ -36,6 +40,12 @@ def create_index(index_dir):
         writer.addDocument(doc)
 
     writer.close()
+
+
+def get_searcher(index_dir):
+    directory = FSDirectory.open(Paths.get(index_dir))
+    reader = DirectoryReader.open(directory)
+    return IndexSearcher(reader)
 
 
 def search_index(searcher, query):
@@ -67,9 +77,10 @@ def search_index(searcher, query):
 
     combined_query = BooleanQuery.Builder()
     combined_query.add(final_query.build(), BooleanClause.Occur.MUST)
-    lyrics_parser = QueryParser("lyrics", StandardAnalyzer())
-    q_lyrics = lyrics_parser.parse(query['lyrics'])
-    combined_query.add(q_lyrics, BooleanClause.Occur.SHOULD)
+    if query.get("lyrics"):
+        lyrics_parser = QueryParser("lyrics", StandardAnalyzer())
+        q_lyrics = lyrics_parser.parse(query['lyrics'])
+        combined_query.add(q_lyrics, BooleanClause.Occur.SHOULD)
 
     top_docs = searcher.search(combined_query.build(), 20)
     score_docs = top_docs.scoreDocs
@@ -79,19 +90,15 @@ def search_index(searcher, query):
         doc = searcher.doc(doc_id)
         print(f"Content: {doc.get('title')} ({doc.get('artist')})")
 
-    return [res.doc for res in score_docs]
+    return [searcher.doc(res.doc) for res in score_docs]
 
 
 # EXAMPLE CODE
-if __name__ == "__main__":
-    lucene.initVM()
-    print(f"Lucene: {lucene.VERSION}")
-    #create_index("./lucene_index")
+def test():
+    create_index("./lucene_index")
 
-    directory = FSDirectory.open(Paths.get("./lucene_index"))
-    reader = DirectoryReader.open(directory)
-    index_searcher = IndexSearcher(reader)
+    index_searcher = get_searcher(":/lucene_index")
     print("Initial results")
-    first_results = search_index(index_searcher, {"title": ["new year"], "artist": ["Taylor Swift"],
-                                                        "year": [{"type": "range", "start": 2010, "end": 2019}],
-                                                        "lyrics": " about love from"})
+    results = search_index(index_searcher, {"title": ["new year"], "artist": ["Taylor Swift"],
+                                            "year": [{"type": "range", "start": 2010, "end": 2019}],
+                                            "lyrics": "glitter on the floor"})
