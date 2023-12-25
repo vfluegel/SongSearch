@@ -56,6 +56,7 @@ def parse_spacy(query):
 
 
 # load tagger
+print("Initialising NER tagger")
 tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
 
 
@@ -68,7 +69,9 @@ def parse_query(query):
     print('The following NER tags are found:')
     # iterate over entities and print
     entities = {}
+    remove_from_query = []
     for entity in sentence.get_spans('ner'):
+        remove_from_query.append(entity.text)
         if entity.tag == "WORK_OF_ART":
             entities["title"] = entities.get("title", []) + [entity.text]
         elif entity.tag == "PERSON" or entity.tag == "ORG":
@@ -81,7 +84,11 @@ def parse_query(query):
     tags = parse_tags(query)
     if tags:
         entities["tags"] = tags
+        remove_from_query += tags
 
+    lyrics = extract_lyrics(query, remove_from_query)
+    if lyrics:
+        entities["lyrics"] = lyrics
     print(entities)
     return entities
 
@@ -127,3 +134,15 @@ def parse_tags(query):
         if genre in query.lower():
             res.append(genre)
     return res
+
+
+def extract_lyrics(query, terms_to_remove):
+    query = query.lower()
+    for term in terms_to_remove:
+        query = query.replace(term.lower(), '')
+
+    meta_terms = ["songs", "song", "title", "tracks", "track", "music"]
+    for term in meta_terms:
+        query = query.replace(term, '')
+
+    return query.strip()

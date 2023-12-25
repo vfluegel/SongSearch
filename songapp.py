@@ -136,26 +136,64 @@ def second_query(user_input, docnums):
  Right now it uses BM25F (default) 
 '''
 def first_query():
+    for widget in result_frame.winfo_children():
+        widget.destroy()
+
     global current_words
     current_words = []
 
-    result_label.config(text="Getting the songs...")
     user_input = entry.get()
     words = user_input.split()
     for word in words:
         current_words.append(word)
 
     query_dict = parse_query(user_input)
-    results = lucene_searcher.search_index(index_searcher, query_dict)
+    lucene_query = lucene_searcher.build_query(query_dict)
+    results = lucene_searcher.perform_search(index_searcher, lucene_query)
     if results:
         print("Query done...")
-        result_text = ""
-        for result in results:
-            result_text += f"{result['title']} | Artist: {result['artist']}\n"
-        result_label.config(text=result_text)
+        for i, result in enumerate(results):
+            result_label = ttk.Label(result_frame, text=f"{result['song']['title']} | Artist: {result['song']['artist']}")
+            result_label.grid(row=i, column=0, padx=(2, 4), sticky="w")
+            like_button = ttk.Button(result_frame, text="I Like!",
+                                     command=lambda song=result:
+                                     lucene_searcher.expand_query(index_reader, lucene_query, song))
+            like_button.grid(row=i, column=1, pady=1)
     else:
-        result_text = "No results found (1)."
-        result_label.config(text=result_text)
+        result_label = ttk.Label(result_frame, text="No results found")
+        result_label.pack()
+
+
+def submit_query():
+    user_input = entry.get()
+
+    query_dict = parse_query(user_input)
+    lucene_query = lucene_searcher.build_query(query_dict)
+    search_and_display(lucene_query)
+
+
+def search_and_display(query):
+    for widget in result_frame.winfo_children():
+        widget.destroy()
+
+    results = lucene_searcher.perform_search(index_searcher, query)
+    if results:
+        print("Query done...")
+        for i, result in enumerate(results):
+            result_label = ttk.Label(result_frame,
+                                     text=f"{result['song']['title']} | Artist: {result['song']['artist']} ({result['song']['year_value']})")
+            result_label.grid(row=i, column=0, padx=(2, 4), sticky="w")
+            like_button = ttk.Button(result_frame, text="I Like!",
+                       command=lambda song=result: like_result(song, query))
+            like_button.grid(row=i, column=1, pady=1)
+    else:
+        result_label = ttk.Label(result_frame, text="No results found")
+        result_label.pack()
+
+
+def like_result(song, original_query):
+    updated_query = lucene_searcher.expand_query(index_reader, original_query, song)
+    search_and_display(updated_query)
 
 
 '''
@@ -166,7 +204,7 @@ schema = Schema(title=TEXT(stored=True), tag=KEYWORD, artist=TEXT(stored=True), 
 index_dir = "./lucene_index"
 if not os.path.exists(index_dir):
     lucene_searcher.create_index("./lucene_index")
-index_searcher = lucene_searcher.get_searcher(index_dir)
+index_reader, index_searcher = lucene_searcher.get_reader_and_searcher(index_dir)
 
 '''
 Second schema, that is emptied each time. 
@@ -181,6 +219,7 @@ PANEL and STYLE
 '''
 app = tk.Tk()
 app.title("Song App")
+app.columnconfigure(0, weight=1)
 
 style = ttk.Style()
 style.theme_use("default")
@@ -188,16 +227,21 @@ style.theme_use("default")
 frame = ttk.Frame(app, padding=(10, 10, 10, 10))
 frame.grid(column=0, row=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
-prompt_label = ttk.Label(frame, text="Enter a prompt:")
+search_frame = ttk.Frame(frame)
+search_frame.grid(column=0, row=0, pady=5)
+prompt_label = ttk.Label(search_frame, text="Enter a prompt:")
 prompt_label.grid(column=0, row=0, pady=(0, 5), sticky=tk.W)
 
-entry = ttk.Entry(frame, width=60)
+entry = ttk.Entry(search_frame, width=60)
 entry.grid(column=0, row=1, pady=(0, 10), sticky=tk.W)
 
-submit_button = ttk.Button(frame, text="Submit", command=first_query)
+submit_button = ttk.Button(search_frame, text="Submit", command=submit_query)
 submit_button.grid(column=0, row=2, pady=(0, 10), sticky=tk.W)
 
-result_label = ttk.Label(frame, text="")
-result_label.grid(column=0, row=3, pady=(0, 10), sticky=tk.W)
+result_frame = ttk.Frame(frame)
+result_frame.columnconfigure(0, weight=1)
+result_frame.grid(column=0, row=1, sticky="w")
+#result_label = ttk.Label(frame, text="")
+#result_label.grid(column=0, row=3, pady=(0, 10), sticky=tk.W)
 
 app.mainloop()
