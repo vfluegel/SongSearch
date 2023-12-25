@@ -3,7 +3,6 @@ import os
 import pandas as pd
 from java.nio.file import Paths
 from tqdm import tqdm
-from org.apache.lucene.analysis.miscellaneous import LimitTokenCountAnalyzer
 from org.apache.lucene.analysis import CharArraySet
 from org.apache.lucene.analysis.standard import StandardAnalyzer
 from org.apache.lucene.document import Document, Field, StringField, TextField, IntPoint, StoredField
@@ -16,6 +15,8 @@ from org.apache.lucene.queries.mlt import MoreLikeThis
 
 lucene.initVM()
 print(f"Lucene: {lucene.VERSION}")
+
+# Read the list of stop words and convert them to Lucene readable format
 with open('stopwords.txt', 'r') as f:
     custom_stopwords = f.read().splitlines()
 stop_word_set = CharArraySet(len(custom_stopwords), True)
@@ -24,6 +25,7 @@ for stop_word in custom_stopwords:
 
 
 def create_index(index_dir):
+    """Create a Lucene index for the song-file in the given location"""
     if not os.path.exists(index_dir):
         os.mkdir(index_dir)
 
@@ -37,6 +39,7 @@ def create_index(index_dir):
     print("Generating index...")
     for row in tqdm(songs.itertuples(), total=songs.shape[0]):
         doc = Document()
+        # Lucene can't handle null values -> these entries are not valid for this use case
         if None in row:
             continue
         doc.add(TextField("title", row.title, Field.Store.YES))
@@ -51,12 +54,14 @@ def create_index(index_dir):
 
 
 def get_reader_and_searcher(index_dir):
+    """Initialise a Lucene reader and searcher for the given index location"""
     directory = FSDirectory.open(Paths.get(index_dir))
     reader = DirectoryReader.open(directory)
     return reader, IndexSearcher(reader)
 
 
 def perform_search(searcher, query):
+    """Use the searcher to perform the given query on the index and return a list of dictionaries as result"""
     top_docs = searcher.search(query.build(), 20)
     score_docs = top_docs.scoreDocs
 
@@ -69,13 +74,17 @@ def perform_search(searcher, query):
 
 
 def build_query(query):
-    final_query = BooleanQuery.Builder()
+    """Convert the query dictionary to a Lucene query"""
+    # Fist part of the query: Args that should produce an exact match
+    exact_query = BooleanQuery.Builder()
 
+    # Add artist to query
     for artist in query.get("artist", []):
         artist_term = Term("artist", artist)
         q_artist = TermQuery(artist_term)
-        final_query.add(BoostQuery(q_artist, 2.0), BooleanClause.Occur.MUST)
+        exact_query.add(BoostQuery(q_artist, 1.5), BooleanClause.Occur.MUST)
 
+    # Add year to query
     for year in query.get("year", []):
         if year["type"] == "range":
             q_year = IntPoint.newRangeQuery("year", year["start"], year["end"])
@@ -83,20 +92,23 @@ def build_query(query):
             q_year = IntPoint.newExactQuery("year", year["year"])
         else:
             raise NotImplemented("Date format not supported")
-        final_query.add(BoostQuery(q_year, 2.0), BooleanClause.Occur.MUST)
+        exact_query.add(BoostQuery(q_year, 1.5), BooleanClause.Occur.MUST)
 
+    # Add tag to query
     for tag in query.get("tags", []):
         tag_term = Term("tag", tag)
         q_tag = TermQuery(tag_term)
-        final_query.add(BoostQuery(q_tag, 2.0), BooleanClause.Occur.MUST)
+        exact_query.add(BoostQuery(q_tag, 1.5), BooleanClause.Occur.MUST)
 
+    # Add title to query
     for title in query.get("title", []):
         query_parser = QueryParser("title", StandardAnalyzer(stop_word_set))
         q_title = query_parser.parse(title)
-        final_query.add(q_title, BooleanClause.Occur.SHOULD)
+        exact_query.add(q_title, BooleanClause.Occur.SHOULD)
 
+    # Second part of query: Combine with search in lyrics
     combined_query = BooleanQuery.Builder()
-    combined_query.add(final_query.build(), BooleanClause.Occur.MUST)
+    combined_query.add(exact_query.build(), BooleanClause.Occur.MUST)
     if query.get("lyrics"):
         lyrics_parser = QueryParser("lyrics", StandardAnalyzer(stop_word_set))
         q_lyrics = lyrics_parser.parse(query['lyrics'])
@@ -106,6 +118,7 @@ def build_query(query):
 
 
 def expand_query(reader, query, feedback):
+    """Expand the original query with the song given as user feedback and return a new query"""
     # Create query from original query
     expanded_query = BooleanQuery.Builder()
     expanded_query.add(query.build(), BooleanClause.Occur.MUST)
@@ -137,14 +150,3 @@ def expand_query(reader, query, feedback):
     expanded_query.add(BoostQuery(q_year, 1.5), BooleanClause.Occur.SHOULD)
 
     return expanded_query
-
-
-# EXAMPLE CODE
-def test():
-    create_index("./lucene_index")
-
-    index_searcher = get_searcher(":/lucene_index")
-    print("Initial results")
-    results = search_index(index_searcher, {"title": ["new year"], "artist": ["Taylor Swift"],
-                                            "year": [{"type": "range", "start": 2010, "end": 2019}],
-                                            "lyrics": "glitter on the floor"})
