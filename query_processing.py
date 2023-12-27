@@ -1,72 +1,25 @@
-import random
-import spacy
 from flair.data import Sentence
 from flair.models import SequenceTagger
-import pandas as pd
-from tqdm import tqdm
-from spacy.training.example import Example
-from spacy.util import minibatch
-from thinc.schedules import compounding
 import re
 
 
-def train():
-    nlp = spacy.load("en_core_web_sm")
-    ner = nlp.get_pipe("ner")
-    examples = []
-    song_data = pd.read_feather("songs_reduced.feather")
-    artists = song_data['artist'].unique()
-    for row in tqdm(artists, total=len(artists)):
-        artist_name = row.rstrip()
-        doc = nlp.make_doc(artist_name)
-        example = Example.from_dict(doc, {"entities": [(0, len(artist_name), "ARTIST")]})
-        examples.append(example)
-
-    unaffected_pipes = [pipe for pipe in nlp.pipe_names if pipe != 'ner']
-    ner.add_label("ARTIST")
-
-    print("Start trainings")
-    # Fine-tune the model
-    optimizer = nlp.resume_training()
-    with nlp.disable_pipes(*unaffected_pipes):
-        for iteration in range(30):
-            random.shuffle(examples)
-            losses = {}
-            batches = minibatch(examples, size=compounding(4.0, 32.0, 1.001))
-            for batch in batches:
-                nlp.rehearse(
-                            batch,
-                            sgd=optimizer,
-                            losses=losses,
-                        )
-                print("Losses", losses)
-
-    # Save the fine-tuned model
-    nlp.to_disk("./model/ner_tuned")
-
-
-def parse_spacy(query):
-    nlp = spacy.load("en_core_web_sm")
-    doc = nlp(query)
-    # Extract entities and their labels
-    entities = [(ent.text, ent.label_) for ent in doc.ents]
-    # Print the identified entities and their labels
-    for entity, label in entities:
-        print(f"Entity (spacy): {entity}, Label: {label}")
+# load tagger
+print("Initialising NER tagger")
+tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
 
 
 def parse_query(query):
-    # load tagger
-    tagger = SequenceTagger.load("flair/ner-english-ontonotes-large")
-    # make example sentence
+    # Convert query to Flair "sentence"
     sentence = Sentence(query)
     # predict NER tags
     tagger.predict(sentence)
     # print predicted NER spans
     print('The following NER tags are found:')
-    # iterate over entities and print
+    # process found entities
     entities = {}
+    remove_from_query = []
     for entity in sentence.get_spans('ner'):
+        remove_from_query.append(entity.text)
         if entity.tag == "WORK_OF_ART":
             entities["title"] = entities.get("title", []) + [entity.text]
         elif entity.tag == "PERSON" or entity.tag == "ORG":
@@ -79,7 +32,12 @@ def parse_query(query):
     tags = parse_tags(query)
     if tags:
         entities["tags"] = tags
+        remove_from_query += tags
 
+    lyrics = extract_lyrics(query, remove_from_query)
+    if lyrics:
+        entities["lyrics"] = lyrics
+    print(entities)
     return entities
 
 
@@ -124,3 +82,15 @@ def parse_tags(query):
         if genre in query.lower():
             res.append(genre)
     return res
+
+
+def extract_lyrics(query, terms_to_remove):
+    query = query.lower()
+    for term in terms_to_remove:
+        query = query.replace(term.lower(), '')
+
+    meta_terms = ["songs", "song", "title", "tracks", "track", "music"]
+    for term in meta_terms:
+        query = query.replace(term, '')
+
+    return query.strip()
