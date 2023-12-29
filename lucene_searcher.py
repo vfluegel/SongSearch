@@ -62,7 +62,7 @@ def get_reader_and_searcher(index_dir):
 
 def perform_search(searcher, query):
     """Use the searcher to perform the given query on the index and return a list of dictionaries as result"""
-    top_docs = searcher.search(query.build(), 20)
+    top_docs = searcher.search(query, 20)
     score_docs = top_docs.scoreDocs
 
     for score_doc in score_docs:
@@ -106,22 +106,29 @@ def build_query(query):
         q_title = query_parser.parse(title)
         exact_query.add(q_title, BooleanClause.Occur.SHOULD)
 
+    exact_query_built = exact_query.build()
     # Second part of query: Combine with search in lyrics
-    combined_query = BooleanQuery.Builder()
-    combined_query.add(exact_query.build(), BooleanClause.Occur.MUST)
     if query.get("lyrics"):
         lyrics_parser = QueryParser("lyrics", StandardAnalyzer(stop_word_set))
         q_lyrics = lyrics_parser.parse(query['lyrics'])
-        combined_query.add(q_lyrics, BooleanClause.Occur.SHOULD)
 
-    return combined_query
+        if not exact_query_built.clauses().isEmpty():
+            combined_query = BooleanQuery.Builder()
+            combined_query.add(exact_query.build(), BooleanClause.Occur.MUST)
+            combined_query.add(q_lyrics, BooleanClause.Occur.SHOULD)
+
+            return combined_query.build()
+        else:
+            return q_lyrics
+    else:
+        return exact_query_built
 
 
 def expand_query(reader, query, feedback):
     """Expand the original query with the song given as user feedback and return a new query"""
     # Create query from original query
     expanded_query = BooleanQuery.Builder()
-    expanded_query.add(query.build(), BooleanClause.Occur.MUST)
+    expanded_query.add(query, BooleanClause.Occur.MUST)
 
     # Add Lyrics of Feedback using MoreLikeThis
     mlt = MoreLikeThis(reader)
@@ -149,4 +156,4 @@ def expand_query(reader, query, feedback):
     q_year = IntPoint.newExactQuery("year", int(feedback["song"].get("year_value")))
     expanded_query.add(BoostQuery(q_year, 1.5), BooleanClause.Occur.SHOULD)
 
-    return expanded_query
+    return expanded_query.build()
