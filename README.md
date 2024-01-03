@@ -1,9 +1,25 @@
 # SongSearch
 Project for a Playlist Generator
 
-to install the library:
-pip install Whoosh
-
-to download the csv:
+## Preparation
+The app uses a dataset based on Genius lyrics.
+The CSV can be downloaded here:
 https://www.kaggle.com/datasets/carlosgdcj/genius-song-lyrics-with-language-information/data
-put the csv in the same folder as songapp.py
+
+To use the data with the app, it needs to be converted:
+1) Put the csv in the root directory of the project (or adjust path accordingly)
+2) Execute csv_to_feather.py (requires Pandas)
+3) A new file called songs_filtered.feather is generated
+
+## Main App
+
+The main app consists of three parts:
+* Graphical user interface (-> songapp.py)
+* PyLucene based search (-> lucene_searcher.py)
+* Natural Language Query processing using Flair NER (-> query_processing.py)
+
+_Note:_ PyLucene cannot be installed using pip. It needs to be [set up](https://lucene.apache.org/pylucene/install.html)
+separately!
+
+To launch the app, execute songapp.py.  
+First startup will take a while, as the index needs to be build and the model potentially downloaded. Subsequent startups will be faster.
