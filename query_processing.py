@@ -42,7 +42,7 @@ def parse_query(query):
 
 
 def parse_date(date_string):
-    match = re.search(r"(?!the)\d{1,3}0(?=s)", date_string)
+    match = re.search(r"(?=the)\d{1,3}0(?=s)", date_string)
     if match:
         year_str = match.group()
         start = int(year_str if len(year_str) == 4 else f"19{year_str}")

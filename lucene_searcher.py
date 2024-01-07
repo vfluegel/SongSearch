@@ -26,8 +26,7 @@ for stop_word in custom_stopwords:
 
 def create_index(index_dir):
     """Create a Lucene index for the song-file in the given location"""
-    if not os.path.exists(index_dir):
-        os.mkdir(index_dir)
+    os.mkdir(index_dir)
 
     analyzer = StandardAnalyzer(stop_word_set)
     config = IndexWriterConfig(analyzer)
