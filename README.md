@@ -2,6 +2,16 @@
 Project for a Playlist Generator
 
 ## Preparation
+_Note:_ PyLucene cannot be installed using pip. It needs to be [set up](https://lucene.apache.org/pylucene/install.html)
+separately!
+
+Due to the usage of PyLucene, the project needs to run with the system-wide Python
+interpreter and its packages. The following additional packages need to be installed:
+* Pandas
+* Tkinter
+* Tqdm
+* Flair
+
 The app uses a dataset based on Genius lyrics.
 The CSV can be downloaded here:
 https://www.kaggle.com/datasets/carlosgdcj/genius-song-lyrics-with-language-information/data
@@ -18,8 +28,7 @@ The main app consists of three parts:
 * PyLucene based search (-> lucene_searcher.py)
 * Natural Language Query processing using Flair NER (-> query_processing.py)
 
-_Note:_ PyLucene cannot be installed using pip. It needs to be [set up](https://lucene.apache.org/pylucene/install.html)
-separately!
+
 
 To launch the app, execute songapp.py.  
 First startup will take a while, as the index needs to be build and the model potentially downloaded. Subsequent startups will be faster.
