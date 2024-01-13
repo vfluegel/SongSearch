@@ -1,3 +1,0 @@
-Current problems:
-- only checks the first document
-- can't upload all documents ( I limited to 100 to test )
